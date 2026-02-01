@@ -126,11 +126,14 @@ backend:
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: true
         agent: "main"
         comment: "Returns product with nested brand intelligence data. Tested successfully with barcode 8901058851236 (Amul)"
+      - working: true
+        agent: "testing"
+        comment: "✅ VERIFIED: All barcode endpoints working correctly. Tested Amul (8901058851236), Parle-G (8901719101038), Coca-Cola (5449000000996). Returns proper product structure with nested brand object. 404 handling works for invalid barcodes."
         
   - task: "API endpoint - GET /api/score/{brand_id}"
     implemented: true
@@ -138,11 +141,14 @@ backend:
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: true
         agent: "main"
         comment: "Calculates India Interest Score (1-10) with transparent breakdown: Indian ownership (30%), Manufacturing (25%), Country relations (20%), Employment (15%), Data sovereignty (10%). Returns recommendation text"
+      - working: true
+        agent: "testing"
+        comment: "✅ VERIFIED: Score calculation working perfectly. Amul scores 9.7/10 (Strongly Recommended), Nestle scores 3.2/10 (Not Recommended). All 5 breakdown categories present with proper scoring logic. 404 handling works for invalid brand IDs."
         
   - task: "API endpoint - GET /api/search/brands?q={query}"
     implemented: true
@@ -150,11 +156,14 @@ backend:
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: true
         agent: "main"
         comment: "Searches brands by name or parent company with fuzzy matching"
+      - working: true
+        agent: "testing"
+        comment: "✅ VERIFIED: Brand search working correctly. Case-insensitive search works (Amul/amul). Returns proper brand objects. Empty results for non-existent queries handled correctly."
         
   - task: "API endpoint - GET /api/search/products?q={query}"
     implemented: true
@@ -162,11 +171,14 @@ backend:
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: true
         agent: "main"
         comment: "Searches products by name or brand name with fuzzy matching"
+      - working: true
+        agent: "testing"
+        comment: "✅ VERIFIED: Product search working correctly. Case-insensitive search works (Butter/butter). Returns products with brand_name included. Empty results for non-existent queries handled correctly."
         
   - task: "API endpoint - GET /api/brand/{brand_id}"
     implemented: true
@@ -174,11 +186,14 @@ backend:
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: true
         agent: "main"
         comment: "Returns complete brand intelligence data including manufacturing states, employee estimates, data storage location"
+      - working: true
+        agent: "testing"
+        comment: "✅ VERIFIED: Brand details endpoint working perfectly. Returns complete brand intelligence with all required fields (manufacturing_states, employees_in_india_estimate, data_storage_country, etc.). 404 handling works for invalid brand IDs."
 
 frontend:
   - task: "Home screen with navigation to Scanner and Search"
