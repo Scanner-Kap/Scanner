@@ -365,18 +365,13 @@ def calculate_india_score(brand: dict) -> dict:
 async def root():
     return {"message": "India First - FMCG Intelligence API", "version": "1.0"}
 
-@api_router.get("/product/barcode/{barcode}", response_model=ProductResponse)
+@api_router.get("/product/barcode/{barcode}")
 async def get_product_by_barcode(barcode: str):
     with get_db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("""
-            SELECT p.*, 
-                   b.id as brand_id, b.brand_name, b.parent_company, b.ownership_country,
-                   b.is_indian_company, b.manufactures_in_india, b.manufacturing_states,
-                   b.employees_in_india_estimate, b.data_storage_country, b.security_flags,
-                   b.govt_restrictions, b.source_links
+            SELECT p.id, p.barcode, p.name, p.brand_id, p.category
             FROM products p
-            LEFT JOIN brands b ON p.brand_id = b.id
             WHERE p.barcode = %s
         """, (barcode,))
         product = cursor.fetchone()
@@ -384,7 +379,14 @@ async def get_product_by_barcode(barcode: str):
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
         
-        return dict(product)
+        # Get brand details
+        cursor.execute("SELECT * FROM brands WHERE id = %s", (product['brand_id'],))
+        brand = cursor.fetchone()
+        
+        result = dict(product)
+        result['brand'] = dict(brand) if brand else None
+        
+        return result
 
 @api_router.get("/brand/{brand_id}", response_model=BrandResponse)
 async def get_brand(brand_id: int):
