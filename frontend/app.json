@@ -1,22 +1,35 @@
 {
   "expo": {
-    "name": "frontend",
-    "slug": "frontend",
+    "name": "India First",
+    "slug": "india-first",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
+    "scheme": "indiafirst",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1a1a2e"
+    },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.indiafirst.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan product barcodes to check India interest score",
+        "NSPhotoLibraryUsageDescription": "Save product information images"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000"
+        "backgroundColor": "#1a1a2e"
       },
-      "edgeToEdgeEnabled": true
+      "package": "com.indiafirst.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -26,12 +39,9 @@
     "plugins": [
       "expo-router",
       [
-        "expo-splash-screen",
+        "expo-camera",
         {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#000"
+          "cameraPermission": "Scan product barcodes to check India interest score"
         }
       ]
     ],
