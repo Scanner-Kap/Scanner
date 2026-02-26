@@ -6,18 +6,42 @@ import {
   TouchableOpacity,
   StatusBar,
   ScrollView,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from './contexts/AuthContext';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { user } = useAuth();
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* Top bar with profile/login button */}
+        <View style={styles.topBar}>
+          <View style={{ flex: 1 }} />
+          <TouchableOpacity
+            style={styles.profileButton}
+            onPress={() => router.push(user ? '/profile' : '/login')}
+            activeOpacity={0.8}
+          >
+            {user?.avatar_url ? (
+              <Image source={{ uri: user.avatar_url }} style={styles.profileAvatar} />
+            ) : (
+              <Ionicons name="person-circle-outline" size={32} color="#FF9933" />
+            )}
+            {user && (
+              <Text style={styles.profileName} numberOfLines={1}>
+                {user.name || user.github_login}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.flagContainer}>
@@ -103,6 +127,30 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 20,
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  profileButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#16213e',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+  },
+  profileAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+  profileName: {
+    color: '#fff',
+    fontSize: 13,
+    maxWidth: 100,
   },
   header: {
     alignItems: 'center',

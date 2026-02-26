@@ -1,4 +1,6 @@
-from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, HTTPException, Depends
+from fastapi.responses import RedirectResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 import os
@@ -9,12 +11,26 @@ from typing import List, Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
+import httpx
+import jwt
+import time
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 # PostgreSQL connection
 POSTGRES_URL = os.environ.get('POSTGRES_URL', 'postgresql://postgres:postgres@localhost:5432/india_first')
+
+# GitHub OAuth settings
+GITHUB_CLIENT_ID = os.environ.get('GITHUB_CLIENT_ID', '')
+GITHUB_CLIENT_SECRET = os.environ.get('GITHUB_CLIENT_SECRET', '')
+GITHUB_REDIRECT_URI = os.environ.get('GITHUB_REDIRECT_URI', 'http://localhost:8001/api/auth/github/callback')
+FRONTEND_REDIRECT_SCHEME = os.environ.get('FRONTEND_REDIRECT_SCHEME', 'indiafirst')
+JWT_SECRET = os.environ.get('JWT_SECRET', 'india-first-jwt-secret-change-in-production')
+JWT_ALGORITHM = 'HS256'
+JWT_EXPIRY_DAYS = 30
+
+security = HTTPBearer(auto_error=False)
 
 # Create the main app
 app = FastAPI()
@@ -62,7 +78,22 @@ def init_db():
                 category VARCHAR(100)
             )
         """)
-        
+
+        # Create users table for GitHub OAuth
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                github_id INTEGER UNIQUE NOT NULL,
+                github_login VARCHAR(255) NOT NULL,
+                name VARCHAR(255),
+                email VARCHAR(255),
+                avatar_url TEXT,
+                bio TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         conn.commit()
         logger.info("Database tables initialized")
         
@@ -254,7 +285,46 @@ def seed_mock_data(conn):
     conn.commit()
     logger.info("Mock data seeded successfully")
 
+# Auth helpers
+def create_jwt_token(user_id: int, github_login: str) -> str:
+    payload = {
+        'sub': str(user_id),
+        'github_login': github_login,
+        'iat': int(time.time()),
+        'exp': int(time.time()) + (JWT_EXPIRY_DAYS * 24 * 60 * 60),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def decode_jwt_token(token: str) -> Optional[dict]:
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
+def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
+    if not credentials:
+        return None
+    payload = decode_jwt_token(credentials.credentials)
+    if not payload:
+        return None
+    with get_db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT * FROM users WHERE id = %s", (int(payload['sub']),))
+        user = cursor.fetchone()
+        return dict(user) if user else None
+
 # Models
+class UserResponse(BaseModel):
+    id: int
+    github_id: int
+    github_login: str
+    name: Optional[str]
+    email: Optional[str]
+    avatar_url: Optional[str]
+    bio: Optional[str]
+
 class BrandResponse(BaseModel):
     id: int
     brand_name: str
@@ -364,6 +434,95 @@ def calculate_india_score(brand: dict) -> dict:
 @api_router.get("/")
 async def root():
     return {"message": "India First - FMCG Intelligence API", "version": "1.0"}
+
+# GitHub OAuth routes
+@api_router.get("/auth/github")
+async def github_auth():
+    """Redirect user to GitHub OAuth authorization page."""
+    if not GITHUB_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="GitHub OAuth not configured. Set GITHUB_CLIENT_ID.")
+    github_url = (
+        f"https://github.com/login/oauth/authorize"
+        f"?client_id={GITHUB_CLIENT_ID}"
+        f"&redirect_uri={GITHUB_REDIRECT_URI}"
+        f"&scope=user:email"
+    )
+    return RedirectResponse(url=github_url)
+
+@api_router.get("/auth/github/callback")
+async def github_callback(code: str):
+    """Handle GitHub OAuth callback, exchange code for user info, issue JWT."""
+    if not GITHUB_CLIENT_ID or not GITHUB_CLIENT_SECRET:
+        raise HTTPException(status_code=500, detail="GitHub OAuth not configured.")
+
+    # Exchange code for access token
+    async with httpx.AsyncClient() as client:
+        token_response = await client.post(
+            "https://github.com/login/oauth/access_token",
+            data={
+                "client_id": GITHUB_CLIENT_ID,
+                "client_secret": GITHUB_CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": GITHUB_REDIRECT_URI,
+            },
+            headers={"Accept": "application/json"},
+        )
+        token_data = token_response.json()
+
+    access_token = token_data.get("access_token")
+    if not access_token:
+        error = token_data.get("error_description", "Failed to obtain access token")
+        return RedirectResponse(url=f"{FRONTEND_REDIRECT_SCHEME}://auth/callback?error={error}")
+
+    # Fetch GitHub user profile
+    async with httpx.AsyncClient() as client:
+        user_response = await client.get(
+            "https://api.github.com/user",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github.v3+json",
+            },
+        )
+        github_user = user_response.json()
+
+    github_id = github_user.get("id")
+    if not github_id:
+        return RedirectResponse(url=f"{FRONTEND_REDIRECT_SCHEME}://auth/callback?error=Failed+to+fetch+user+profile")
+
+    # Upsert user in database
+    with get_db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            INSERT INTO users (github_id, github_login, name, email, avatar_url, bio, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (github_id) DO UPDATE SET
+                github_login = EXCLUDED.github_login,
+                name = EXCLUDED.name,
+                email = EXCLUDED.email,
+                avatar_url = EXCLUDED.avatar_url,
+                bio = EXCLUDED.bio,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING id, github_login
+        """, (
+            github_id,
+            github_user.get("login"),
+            github_user.get("name"),
+            github_user.get("email"),
+            github_user.get("avatar_url"),
+            github_user.get("bio"),
+        ))
+        user_row = cursor.fetchone()
+        conn.commit()
+
+    jwt_token = create_jwt_token(user_row["id"], user_row["github_login"])
+    return RedirectResponse(url=f"{FRONTEND_REDIRECT_SCHEME}://auth/callback?token={jwt_token}")
+
+@api_router.get("/auth/me", response_model=UserResponse)
+async def get_me(current_user=Depends(get_current_user)):
+    """Return the currently authenticated user's profile."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return current_user
 
 @api_router.get("/product/barcode/{barcode}")
 async def get_product_by_barcode(barcode: str):
