@@ -8,7 +8,7 @@
     "scheme": "indiafirst",
     "userInterfaceStyle": "automatic",
     "splash": {
-      "image": "./assets/images/splash.png",
+      "image": "./assets/images/splash-image.png",
       "resizeMode": "contain",
       "backgroundColor": "#1a1a2e"
     },
