@@ -12,7 +12,10 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
 import httpx
-import jwt
+import hmac
+import hashlib
+import base64
+import json
 import time
 
 ROOT_DIR = Path(__file__).parent
@@ -285,22 +288,45 @@ def seed_mock_data(conn):
     conn.commit()
     logger.info("Mock data seeded successfully")
 
-# Auth helpers
+# Auth helpers — simple HMAC-HS256 JWT using stdlib (avoids cryptography pkg conflicts)
+def _b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b'=').decode()
+
+def _b64url_decode(s: str) -> bytes:
+    padding = 4 - len(s) % 4
+    return base64.urlsafe_b64decode(s + '=' * (padding % 4))
+
 def create_jwt_token(user_id: int, github_login: str) -> str:
-    payload = {
+    header = _b64url_encode(json.dumps({'alg': 'HS256', 'typ': 'JWT'}).encode())
+    payload = _b64url_encode(json.dumps({
         'sub': str(user_id),
         'github_login': github_login,
         'iat': int(time.time()),
         'exp': int(time.time()) + (JWT_EXPIRY_DAYS * 24 * 60 * 60),
-    }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    }).encode())
+    signing_input = f"{header}.{payload}"
+    sig = _b64url_encode(
+        hmac.new(JWT_SECRET.encode(), signing_input.encode(), hashlib.sha256).digest()
+    )
+    return f"{signing_input}.{sig}"
 
 def decode_jwt_token(token: str) -> Optional[dict]:
     try:
-        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-    except jwt.ExpiredSignatureError:
-        return None
-    except jwt.InvalidTokenError:
+        parts = token.split('.')
+        if len(parts) != 3:
+            return None
+        header_b64, payload_b64, sig_b64 = parts
+        signing_input = f"{header_b64}.{payload_b64}"
+        expected_sig = _b64url_encode(
+            hmac.new(JWT_SECRET.encode(), signing_input.encode(), hashlib.sha256).digest()
+        )
+        if not hmac.compare_digest(sig_b64, expected_sig):
+            return None
+        payload = json.loads(_b64url_decode(payload_b64))
+        if payload.get('exp', 0) < int(time.time()):
+            return None  # expired
+        return payload
+    except Exception:
         return None
 
 def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
