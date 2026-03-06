@@ -3660,13 +3660,6 @@ expo-asset@~12.0.12:
     "@expo/image-utils" "^0.8.8"
     expo-constants "~18.0.12"
 
-expo-barcode-scanner@^13.0.1:
-  version "13.0.1"
-  resolved "https://registry.npmjs.org/expo-barcode-scanner/-/expo-barcode-scanner-13.0.1.tgz"
-  integrity sha512-xBGLT1An2gpAMIQRTLU3oHydKohX8r8F9/ait1Fk9Vgd0GraFZbP4IiT7nHMlaw4H6E7Muucf7vXpGV6u7d4HQ==
-  dependencies:
-    expo-image-loader "~4.7.0"
-
 expo-blur@~15.0.8:
   version "15.0.8"
   resolved "https://registry.yarnpkg.com/expo-blur/-/expo-blur-15.0.8.tgz#846cea275a6644639c5c338987b4cca54cf93eca"
@@ -3703,11 +3696,6 @@ expo-haptics@~15.0.8:
   version "15.0.8"
   resolved "https://registry.yarnpkg.com/expo-haptics/-/expo-haptics-15.0.8.tgz#f93f895ac5d76fe0c5ac26b3644e1dbb097833f3"
   integrity sha512-lftutojy8Qs8zaDzzjwM3gKHFZ8bOOEZDCkmh2Ddpe95Ra6kt2izeOfOfKuP/QEh0MZ1j9TfqippyHdRd1ZM9g==
-
-expo-image-loader@~4.7.0:
-  version "4.7.0"
-  resolved "https://registry.npmjs.org/expo-image-loader/-/expo-image-loader-4.7.0.tgz"
-  integrity sha512-cx+MxxsAMGl9AiWnQUzrkJMJH4eNOGlu7XkLGnAXSJrRoIiciGaKqzeaD326IyCTV+Z1fXvIliSgNW+DscvD8g==
 
 expo-image@~3.0.11:
   version "3.0.11"
