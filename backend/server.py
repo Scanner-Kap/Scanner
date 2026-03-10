@@ -3,6 +3,8 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 import os
 import logging
+import json
+import httpx
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -15,6 +17,8 @@ load_dotenv(ROOT_DIR / '.env')
 
 # PostgreSQL connection
 POSTGRES_URL = os.environ.get('POSTGRES_URL', 'postgresql://postgres:postgres@localhost:5432/india_first')
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+ADMIN_KEY = os.environ.get('ADMIN_KEY', 'india-first-admin-2024')
 
 # Create the main app
 app = FastAPI()
@@ -28,6 +32,47 @@ def get_db_connection():
         yield conn
     finally:
         conn.close()
+
+async def fetch_from_openfoodfacts(barcode: str) -> Optional[dict]:
+    """
+    Fetch product data from OpenFoodFacts API.
+    Returns dict with keys: name, brand_name, category
+    Returns None if product not found or API error.
+    """
+    url = f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(url)
+            data = response.json()
+
+        if data.get('status') != 1:
+            return None
+
+        product = data.get('product', {})
+
+        # Extract product name
+        name = product.get('product_name') or product.get('product_name_en', '')
+        if not name:
+            return None
+
+        # Extract brand name (first if comma-separated)
+        brands_raw = product.get('brands', '')
+        brand_name = brands_raw.split(',')[0].strip() if brands_raw else ''
+        if not brand_name:
+            return None
+
+        # Extract category (strip "en:" prefix)
+        categories = product.get('categories_tags', [])
+        category = categories[0].replace('en:', '') if categories else 'general'
+
+        return {
+            'name': name,
+            'brand_name': brand_name,
+            'category': category,
+        }
+    except Exception as e:
+        logger.error(f"OpenFoodFacts API error for {barcode}: {e}")
+        return None
 
 # Initialize database tables
 def init_db():
@@ -367,6 +412,7 @@ async def root():
 
 @api_router.get("/product/barcode/{barcode}")
 async def get_product_by_barcode(barcode: str):
+    # Step 1: Check DB cache
     with get_db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("""
@@ -375,17 +421,117 @@ async def get_product_by_barcode(barcode: str):
             WHERE p.barcode = %s
         """, (barcode,))
         product = cursor.fetchone()
-        
-        if not product:
-            raise HTTPException(status_code=404, detail="Product not found")
-        
-        # Get brand details
-        cursor.execute("SELECT * FROM brands WHERE id = %s", (product['brand_id'],))
+
+        if product:
+            cursor.execute("SELECT * FROM brands WHERE id = %s", (product['brand_id'],))
+            brand = cursor.fetchone()
+            result = dict(product)
+            result['brand'] = dict(brand) if brand else None
+            if brand:
+                score_data = calculate_india_score(dict(brand))
+                result.update(score_data)
+            return result
+
+    # Step 2: Not in DB — try OpenFoodFacts
+    off_data = await fetch_from_openfoodfacts(barcode)
+    if not off_data:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    brand_name = off_data['brand_name']
+
+    # Step 3: Look up or create brand
+    with get_db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT * FROM brands WHERE LOWER(brand_name) = LOWER(%s)",
+            (brand_name,)
+        )
         brand = cursor.fetchone()
-        
-        result = dict(product)
-        result['brand'] = dict(brand) if brand else None
-        
+
+        if not brand:
+            # Try Claude generation if available, else create minimal record
+            if ANTHROPIC_API_KEY:
+                try:
+                    brand_data = generate_brand_with_claude(brand_name)
+                    db_brand = brand_import_to_db(BrandImport(**brand_data))
+                except Exception as e:
+                    logger.error(f"Claude generation failed for {brand_name}: {e}")
+                    db_brand = {
+                        'brand_name': brand_name,
+                        'parent_company': brand_name,
+                        'ownership_country': 'Unknown',
+                        'is_indian_company': False,
+                        'manufactures_in_india': 'false',
+                        'manufacturing_states': [],
+                        'employees_in_india_estimate': '0',
+                        'data_storage_country': 'Unknown',
+                        'security_flags': [],
+                        'govt_restrictions': [],
+                        'source_links': [],
+                    }
+            else:
+                db_brand = {
+                    'brand_name': brand_name,
+                    'parent_company': brand_name,
+                    'ownership_country': 'Unknown',
+                    'is_indian_company': False,
+                    'manufactures_in_india': 'false',
+                    'manufacturing_states': [],
+                    'employees_in_india_estimate': '0',
+                    'data_storage_country': 'Unknown',
+                    'security_flags': [],
+                    'govt_restrictions': [],
+                    'source_links': [],
+                }
+
+            cursor.execute("""
+                INSERT INTO brands (brand_name, parent_company, ownership_country, is_indian_company,
+                    manufactures_in_india, manufacturing_states, employees_in_india_estimate,
+                    data_storage_country, security_flags, govt_restrictions, source_links)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (brand_name) DO UPDATE SET brand_name = EXCLUDED.brand_name
+                RETURNING id
+            """, (
+                db_brand['brand_name'], db_brand['parent_company'], db_brand['ownership_country'],
+                db_brand['is_indian_company'], db_brand['manufactures_in_india'],
+                db_brand['manufacturing_states'], db_brand['employees_in_india_estimate'],
+                db_brand['data_storage_country'], db_brand['security_flags'],
+                db_brand['govt_restrictions'], db_brand['source_links']
+            ))
+            brand_id = cursor.fetchone()['id']
+            conn.commit()
+
+            cursor.execute("SELECT * FROM brands WHERE id = %s", (brand_id,))
+            brand = cursor.fetchone()
+
+        brand_id = brand['id']
+
+        # Step 4: Cache product in DB
+        cursor.execute("""
+            INSERT INTO products (barcode, name, brand_id, category)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (barcode) DO NOTHING
+            RETURNING id
+        """, (barcode, off_data['name'], brand_id, off_data['category']))
+        row = cursor.fetchone()
+        if row:
+            product_id = row['id']
+        else:
+            cursor.execute("SELECT id FROM products WHERE barcode = %s", (barcode,))
+            product_id = cursor.fetchone()['id']
+        conn.commit()
+
+        # Step 5: Build and return response
+        result = {
+            'id': product_id,
+            'barcode': barcode,
+            'name': off_data['name'],
+            'brand_id': brand_id,
+            'category': off_data['category'],
+            'brand': dict(brand),
+        }
+        score_data = calculate_india_score(dict(brand))
+        result.update(score_data)
         return result
 
 @api_router.get("/brand/{brand_id}", response_model=BrandResponse)
