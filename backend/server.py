@@ -15,6 +15,13 @@ from contextlib import contextmanager
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
+# Configure logging early so all functions can use logger
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # PostgreSQL connection
 POSTGRES_URL = os.environ.get('POSTGRES_URL', 'postgresql://postgres:postgres@localhost:5432/india_first')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
@@ -43,6 +50,7 @@ async def fetch_from_openfoodfacts(barcode: str) -> Optional[dict]:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(url)
+            response.raise_for_status()
             data = response.json()
 
         if data.get('status') != 1:
@@ -452,6 +460,10 @@ async def get_product_by_barcode(barcode: str):
             # Try Claude generation if available, else create minimal record
             if ANTHROPIC_API_KEY:
                 try:
+                    # NOTE: generate_brand_with_claude, brand_import_to_db, BrandImport are defined
+                    # in the brand intelligence plan (docs/plans/2026-03-08-brand-intelligence-plan.md).
+                    # Until that plan is executed, Claude generation will fall through to the except block
+                    # and create a minimal stub brand record instead.
                     brand_data = generate_brand_with_claude(brand_name)
                     db_brand = brand_import_to_db(BrandImport(**brand_data))
                 except Exception as e:
@@ -596,13 +608,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 @app.on_event("startup")
 async def startup_event():
