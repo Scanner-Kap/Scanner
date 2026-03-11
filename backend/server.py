@@ -450,11 +450,18 @@ async def get_product_by_barcode(barcode: str):
     # Step 3: Look up or create brand
     with get_db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
+        # Try exact match first, then partial match to handle typos like "Maggie" vs "Maggi"
         cursor.execute(
             "SELECT * FROM brands WHERE LOWER(brand_name) = LOWER(%s)",
             (brand_name,)
         )
         brand = cursor.fetchone()
+        if not brand:
+            cursor.execute(
+                "SELECT * FROM brands WHERE LOWER(brand_name) LIKE LOWER(%s) OR LOWER(%s) LIKE LOWER(brand_name || '%')",
+                (f"{brand_name[:5]}%", brand_name)
+            )
+            brand = cursor.fetchone()
 
         if not brand:
             # Try Claude generation if available, else create minimal record
