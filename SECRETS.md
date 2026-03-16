@@ -13,7 +13,7 @@ from any APK by anyone who downloads it.
 |--------|---------------|---------|---------|-------|
 | `ANTHROPIC_API_KEY` | Render env vars only | No | No | Never commit |
 | `POSTGRES_URL` | Render env vars only | No | No | Never commit |
-| `ADMIN_KEY` | Render env vars + server.py default | No | Yes (default only) | Default is low-risk; override in prod |
+| `ADMIN_KEY` | Render env vars + server.py default | No | Yes (default only) | Default ("india-first-admin-2024") is in git history — MUST override in Render env vars |
 | `EXPO_PUBLIC_BACKEND_URL` | eas.json + frontend/.env | Yes (safe) | eas.json yes | Public URL, safe to expose |
 
 ## Safe to commit
@@ -21,8 +21,8 @@ from any APK by anyone who downloads it.
 - `backend/server.py` (reads secrets from env vars, never hardcodes real values)
 
 ## Never commit
-- `frontend/.env` (gitignored ✅)
-- `backend/.env` (gitignored ✅)
+- `frontend/.env` (gitignored via frontend/.gitignore ✅)
+- `backend/.env` (gitignored via backend/.gitignore ✅)
 - Any file containing real API keys, passwords, or tokens
 
 ## Rotating a compromised key
