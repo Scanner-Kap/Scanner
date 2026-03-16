@@ -20,6 +20,7 @@ export default function ScannerScreen() {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [scanned, setScanned] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('Looking up product...');
 
   useEffect(() => {
     (async () => {
@@ -30,16 +31,21 @@ export default function ScannerScreen() {
 
   const handleBarcodeScanned = async ({ data }: { data: string }) => {
     if (scanned || loading) return;
-    
+
     setScanned(true);
     setLoading(true);
+    setLoadingMessage('Looking up product...');
 
+    let slowTimer: ReturnType<typeof setTimeout>;
     try {
+      slowTimer = setTimeout(() => {
+        setLoadingMessage('Almost there...');
+      }, 3000);
+
       const response = await axios.get(
         `${EXPO_PUBLIC_BACKEND_URL}/api/product/barcode/${data}`
       );
-      
-      // Navigate to product detail screen with the product data
+
       router.push({
         pathname: '/product-detail',
         params: { productData: JSON.stringify(response.data) },
@@ -79,6 +85,7 @@ export default function ScannerScreen() {
         );
       }
     } finally {
+      clearTimeout(slowTimer!);
       setLoading(false);
     }
   };
@@ -110,6 +117,12 @@ export default function ScannerScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {loading && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#FF9933" />
+          <Text style={styles.loadingOverlayText}>{loadingMessage}</Text>
+        </View>
+      )}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
@@ -143,11 +156,8 @@ export default function ScannerScreen() {
 
       <View style={styles.instructions}>
         <Text style={styles.instructionText}>
-          {loading
-            ? 'Fetching product information...'
-            : 'Align the barcode within the frame'}
+          {'Align the barcode within the frame'}
         </Text>
-        {loading && <ActivityIndicator size="small" color="#FF9933" style={{ marginTop: 8 }} />}
         {scanned && !loading && (
           <TouchableOpacity
             style={styles.scanAgainButton}
@@ -278,5 +288,22 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(26, 26, 46, 0.92)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  loadingOverlayText: {
+    color: '#fff',
+    fontSize: 18,
+    marginTop: 16,
+    fontWeight: '600',
   },
 });
