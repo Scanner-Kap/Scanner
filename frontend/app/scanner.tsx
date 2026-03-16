@@ -36,7 +36,8 @@ export default function ScannerScreen() {
     setLoading(true);
     setLoadingMessage('Looking up product...');
 
-    let slowTimer: ReturnType<typeof setTimeout>;
+    let slowTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+    let navigated = false;
     try {
       slowTimer = setTimeout(() => {
         setLoadingMessage('Almost there...');
@@ -46,6 +47,7 @@ export default function ScannerScreen() {
         `${EXPO_PUBLIC_BACKEND_URL}/api/product/barcode/${data}`
       );
 
+      navigated = true;
       router.push({
         pathname: '/product-detail',
         params: { productData: JSON.stringify(response.data) },
@@ -85,8 +87,8 @@ export default function ScannerScreen() {
         );
       }
     } finally {
-      clearTimeout(slowTimer!);
-      setLoading(false);
+      clearTimeout(slowTimer);
+      if (!navigated) setLoading(false);
     }
   };
 
@@ -117,12 +119,6 @@ export default function ScannerScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {loading && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#FF9933" />
-          <Text style={styles.loadingOverlayText}>{loadingMessage}</Text>
-        </View>
-      )}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
@@ -167,6 +163,12 @@ export default function ScannerScreen() {
           </TouchableOpacity>
         )}
       </View>
+      {loading && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#FF9933" />
+          <Text style={styles.loadingOverlayText}>{loadingMessage}</Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -299,6 +301,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 10,
+    elevation: 10,
   },
   loadingOverlayText: {
     color: '#fff',
